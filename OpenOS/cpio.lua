@@ -139,6 +139,7 @@ if opts.o then
 					write(last)
 				end
 			until not last or #last ~= chunk_size
+			h:close()
 		end
 		if opts.v then eprint(line) end
 	end
