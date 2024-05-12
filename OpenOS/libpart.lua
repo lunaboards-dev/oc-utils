@@ -43,7 +43,7 @@ function part.osdi(disk)
 				type = ptype,
 				flags = flags,
 				name = name,
-				valid = ptype == string.rep("\0", 8)
+				valid = ptype ~= string.rep("\0", 8)
 			})
 		end
 		return ents
@@ -65,7 +65,8 @@ end
 
 -- parse partition identifiers
 function part.parse(str)
-	local ptype, addr, pn = str:match("(%w+)%(([%x%-]+), ?(%n+)%)")
+	local ptype, addr, pn = str:match("(%w+)%(([%x%-]+), ?(%d+)%)")
+	if not ptype then error("bad identifier") end
 	ptype = ptype:lower()
 	if parts[ptype] then
 		local comp = component.proxy(assert(component.get(addr, "drive")))
