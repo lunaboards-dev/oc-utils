@@ -100,6 +100,7 @@ function part.list()
 			end
 		end
 	end
+	return dlist
 end
 
 function part.proxy(id)
