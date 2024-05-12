@@ -1,6 +1,7 @@
 local component = require("component")
 local shell = require("shell")
 local ocfs = require("libocfs")
+local libpart = require("libpart")
 
 local args, opts = shell.parse(...)
 
@@ -10,11 +11,11 @@ local offset = opts.offset and tonumber(opts.offset) or 1
 local group_size = opts.group_size and (tonumber(opts.group_size)) or 2048
 local nodes = opts.nodes and tonumber(opts.nodes) or 256
 
-local disk = component.get(args[1], "drive")
+local disk = libpart.proxy(args[1])
 
-local capacity_blocks = disk.getCapacity()/disk.getBlockSize()
-local bitmap_blocks = capacity_blocks/4096
-local groups = capacity_blocks/group_size
+local capacity_blocks = disk.getCapacity()/disk.getSectorSize()
+local bitmap_blocks = math.ceil(capacity_blocks/4096)
+local groups = math.ceil(capacity_blocks/group_size)
 
 local function a2b(addr)
     local d = ""
@@ -25,7 +26,7 @@ local function a2b(addr)
 end
 
 local function pad(block)
-    return block .. string.rep("\0", disk.getBlockSize()-#block)
+    return block .. string.rep("\0", disk.getSectorSize()-#block)
 end
 
 local first_block = offset + bitmap_blocks + 1
@@ -49,7 +50,8 @@ local superblock = ocfs.superblock {
     total_blocks = capacity_blocks,
     free_blocks = capacity_blocks - (first_block + groups),
     volume_name = label,
-    uuid = a2b(uuid)
+    uuid = a2b(uuid),
+    nodes_per_group = nodes
 }
 
 for i=1, offset do

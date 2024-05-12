@@ -22,7 +22,10 @@ local function struct(tbl)
 			elseif type(val) == "table" then
 				local vals = {}
 				for i=1, fields.n do
-					vals[i] = tbl[fields[i]]
+					if not val[fields[i]] then
+						error("missing field "..fields[i])
+					end
+					vals[i] = val[fields[i]]
 				end
 				vals.n = fields.n
 				return string.pack(str, table.unpack(vals))
