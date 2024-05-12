@@ -104,6 +104,10 @@ local function readfile(path)
 			offset = _o
 			if name == match then
 				inode = _inode
+				break
+			end
+			if offset >= node.blocks*512-node.size then
+				break
 			end
 		end
 	end
