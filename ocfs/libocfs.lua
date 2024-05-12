@@ -78,6 +78,11 @@ ocfs.inode = struct {
 	{dip_list="I3"}
 }
 
+ocfs.dirent = struct {
+	{node="I3"},
+	{name="s1"}
+}
+
 --[[
 
 	function signature(str)

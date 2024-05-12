@@ -72,12 +72,31 @@ for i=1, groups do
     }))
     set_map(g_offset, 1)
 end
+local payload = (ocfs.dirent {
+    node = 1,
+    name = "."
+})..(ocfs.dirent {
+    node = 1,
+    name = ".."
+})
 
 disk.writeSector(first_block, pad((ocfs.nodegroup {
-
+    version = 0,
+    next_group = 0,
+    allocated_nodes = 1
 })..ocfs.inode {
-
+    nlinks = 2,
+    size_last = 512-#payload,
+    attributes = 0,
+    block_count = 1,
+    mtime = os.time(),
+    ctime = os.time(),
+    sip = 0,
+    dip_list = 0,
+    first_block+1, 0, 0, 0, 0, 0, 0, 0, 0, 0
 }))
+
+disk.writeSector(first_block, pad(payload))
 
 for i=1, #bitmap_blocks, 512 do
     disk.writeSector(offset+i+1, bitmap_blocks:sub(i, i+511))
