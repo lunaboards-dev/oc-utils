@@ -763,7 +763,7 @@ while true do
 		end
 		local _sig = {K=2, M = 2048}
 		local end_sec_n
-		local end_sec = adv_prompt(string.format("End sector (%d-%d, q to quit) [%d]", start_sec, max, max), function(r)
+		local end_sec = adv_prompt(string.format("End sector, +sectors or +size{K,M} (%d-%d, q to quit) [%d]", start_sec, max, max), function(r)
 			if r == "q" or r == "" then return true end
 			local add, num, size = r:match("^(%+?)(%d+)([KM]?)$")
 			local n = tonumber(num, 10)
