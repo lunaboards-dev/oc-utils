@@ -66,8 +66,9 @@ local menu = {
 		n = "add a new partition",
 		p = "print the partition table",
 		t = "change a partition type",
-		v = "verify the partition table",
-		i = "print information about a partition",
+		--v = "verify the partition table",
+		--i = "print information about a partition",
+		f = "set flags",
 		L = "set partition label",
 		D = "set disk label"
 	},
@@ -94,10 +95,22 @@ local known_partitions = {
 		{["foxfs"] = "FoxFS"},
 		{["zryainit"] = "Zorya NEO Init"},
 		{["BOOTCODE"] = "Bootloader code"},
+		{["openos"] = "OpenOS Root (/)"},
+		{["SIMPLEFS"] = "SimpleFS"},
+		{["VelxBoot"] = "VXBoot Boot Partition"},
+		{["fencroot"] = "Fennec Root (/)"},
+		{["fencusr"] = "Fennec /usr"},
+		{["fenchome"] = "Fennec /home"},
+		{["fencsrv"] = "Fennec /srv"},
+		{["rtfs"] = "RTFS"},
+		{["mtpt"] = "MTPT Partition Table"},
 	},
 	mtpt = {
 		{["rtfs"] = "RTFS"},
 		{["boot"] = "Bootloader code"},
+		{["oosr"] = "OpenOS Root (/)"},
+		{["vxbp"] = "VXBoot Boot Partition"},
+		{["osdi"] = "OSDI Partition Table"}
 	}
 }
 
@@ -210,7 +223,16 @@ if not args[1] or opts.h then
 end
 
 local odev = dev_wrap(args[1])
+
 local tbl = detect_table(odev)
+local function flag_set(char, name)
+	return {char=char, name=name, set=true}
+end
+local function flag(char, name)
+	return {char=char, name=name}
+end
+
+local no_flag = flag("?", "Unknown")
 
 local ptypes = {
 	osdi = {
@@ -233,7 +255,36 @@ local ptypes = {
 		free = function(ent)
 			return ent.type:gsub("\0+$", "") == ""
 		end,
-		flags = "%.6x",
+		flags = "%.24s",
+		flags_short = "%.12s",
+		flag_list = {
+			short = 12,
+			flag("o", "OS partition"),
+			flag("b", "bootloader partition"),
+			flag("p", "POSIX permissions"),
+			flag_set("r", "read-only"),
+			flag_set("h", "hidden"),
+			flag_set("s", "system critical partition"),
+			flag("z", "Zorya special"),
+			flag("m", "managed FS emulation"),
+			flag("r", "raw data"),
+			flag_set("A", "active"),
+			flag("o", "OEFI hint"),
+			flag("o", "OEFI hint"),
+			-- System specific flags
+			no_flag,
+			no_flag,
+			no_flag,
+			no_flag,
+			no_flag,
+			no_flag,
+			no_flag,
+			no_flag,
+			no_flag,
+			no_flag,
+			no_flag,
+			no_flag,
+		},
 		namesize = 13,
 		typesize = 8
 	},
@@ -418,6 +469,19 @@ local function to_human(n)
 	return string.format("%.1f%s", n, sizes[#sizes])
 end
 
+local function serialize_flags(flag_list, flags, short)
+	local bit = 1
+	local fstr = ""
+	local fl = {}
+	for i=1, short or #flag_list do
+		local set = flags & bit > 0
+		fstr = (set and flag_list[i].char or "-") .. fstr
+		bit = bit << 1
+		if set then table.insert(fl, flag_list[i]) end
+	end
+	return fstr, fl
+end
+
 local dev_names = {
 	drive = "Disk",
 	tape_drive = "Tape",
@@ -428,12 +492,72 @@ while true do
 	local pt = ptypes[tbl.type]
 	local cmd = prompt("Command (m for help)")
 	if not valid_command(cmd) then if cmd ~= "" then eprint(cmd..": unknown command") end goto continue end
-	if cmd == "l" then
+	--[[
+		Set or view flags
+	]]
+	if cmd == "f" then
+		if not pt.flags then
+			eprint("No flags.")
+			goto continue
+		end
+		local flag_list = {}
+		for i=1, #pt.flag_list do
+			local fl = pt.flag_list[i]
+			if fl.set then
+				table.insert(flag_list, fl)
+				flag_list[fl.char] = 1 << (i-1)
+			end
+		end
+		local used = get_used()
+		if #used == 0 then
+			eprint("No partitions.")
+			goto continue
+		end
+		local lookup = invert(used)
+		local range = collection_to_human(used)
+		local part = adv_prompt(string.format("Select a partition (%s, q to quit) [%d]", range, used[#used]), function(r)
+			return r == "q" or r == "" or (tonumber(r, 10) and lookup[tonumber(r, 10)])
+		end)
+		if part == "q" then goto continue end
+		if part == "" then
+			part = used[#used]
+		else
+			part = tonumber(part, 10)
+		end
+		while true do
+			local fv, fl = serialize_flags(pt.flag_list, tbl[part+1].flags)
+			print(string.format("Flags: "..pt.flags.."\n", fv))
+			for i=1, #flag_list do
+				print(string.format("  %s   %s", flag_list[i].char, flag_list[i].name))
+			end
+			print("  ?   print all set flag meanings")
+			print("  q   exits this submenu")
+			local fls = prompt("Flag (q to exit)")
+			if fls == "?" then
+				for i=1, #fl do
+					print(string.format("  %s   %s", fl[i].char, fl[i].name))
+				end
+			elseif flag_list[fls] then
+				tbl[part+1].flags = tbl[part+1].flags ~ flag_list[fls]
+			elseif fls == "q" then
+				goto continue
+			else
+				eprint("Unknown command or flag.")
+			end
+		end
+	--[[
+		List types
+	]]
+	elseif cmd == "l" then
 		list_types()
+	--[[
+		Drive label
+	]]
 	elseif cmd == "D" then
 		local label = prompt("Enter disk label")
+		label = label:sub(1, pt.namesize)
 		tbl[1].name = label
-		component.invoke(odev.addr, "setLabel", label)
+		--component.invoke(odev.addr, "setLabel", label)
 		print(string.format("Drive label set to '%s'", label))
 	--[[
 		Set partition label
@@ -546,6 +670,7 @@ while true do
 		local sec_count = odev.last()
 		local size = odev.size()*sec_count
 		print(string.format("%s %s: %s, %d bytes, %d sectors", dev_names[odev.type], odev.addr, to_human(size),size, sec_count))
+		print(string.format("%s label: %s", dev_names[odev.type], tbl[1].name))
 		print(string.format("Sector size: %d bytes", odev.size()))
 		print("Partition table type: "..tbl.type.."\n")
 		local list = {}
@@ -571,7 +696,7 @@ while true do
 			end
 			add_entry("%d", i-1)
 			if pt.flags then
-				add_entry(pt.flags, tbl[i].flags)
+				add_entry(pt.flags_short, (serialize_flags(pt.flag_list, tbl[i].flags, pt.flag_list.short)))
 			end
 			add_entry("%d", tbl[i].start)
 			add_entry("%d", tbl[i].size)
@@ -713,6 +838,11 @@ while true do
 			local loc = ptypes[open_type].loc
 			odev.write(loc, string.rep("\0", odev.size(loc)))
 		end
+		local lbl = tbl[1].name
+		if lbl == "" then
+			lbl = nil
+		end
+		component.invoke(odev.addr, "setLabel", lbl)
 		os.exit()
 	elseif cmd == "q" then
 		os.exit()
