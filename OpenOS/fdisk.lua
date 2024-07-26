@@ -104,13 +104,15 @@ local known_partitions = {
 		{["fencsrv"] = "Fennec /srv"},
 		{["rtfs"] = "RTFS"},
 		{["mtpt"] = "MTPT Partition Table"},
+		{["bootpart"] = "Bootloader partition"},
 	},
 	mtpt = {
 		{["rtfs"] = "RTFS"},
 		{["boot"] = "Bootloader code"},
 		{["oosr"] = "OpenOS Root (/)"},
 		{["vxbp"] = "VXBoot Boot Partition"},
-		{["osdi"] = "OSDI Partition Table"}
+		{["osdi"] = "OSDI Partition Table"},
+		{["blpt"] = "Bootloader partition"}
 	}
 }
 
@@ -843,6 +845,7 @@ while true do
 			lbl = nil
 		end
 		component.invoke(odev.addr, "setLabel", lbl)
+		require("computer").pushSignal("reload_partitions", odev.addr)
 		os.exit()
 	elseif cmd == "q" then
 		os.exit()
