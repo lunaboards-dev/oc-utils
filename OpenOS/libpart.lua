@@ -172,6 +172,7 @@ local lm = require("filesystem").lastModified("/tmp/.rt")
 os.remove("/tmp/.rt")
 if (lm/(1000^4) > 1) then
 	lm = lm / 1000
+	part.host_linux = true
 end
 local epoch = lm-st
 

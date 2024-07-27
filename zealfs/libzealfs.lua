@@ -164,7 +164,7 @@ end
 
 local function from_bcd(b)
 	local int = 0
-	for i=#b, 1, -1 do
+	for i=1, #b do
 		local byte = b:byte(i)
 		local hi, lo = byte >> 4, byte & 0xF
 		int = int * 100

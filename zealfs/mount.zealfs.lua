@@ -427,7 +427,7 @@ end
 function proxy.lastModified(path)
 	local st = stat(path)
 	if not st then return end
-	return zealfs.from_bcddate(st.date)
+	return zealfs.from_bcddate(st.date) * (libpart.host_linux and 1000 or 1)
 end
 
 -- i hate this
