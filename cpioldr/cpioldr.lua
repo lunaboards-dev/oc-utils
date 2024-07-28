@@ -301,8 +301,8 @@ local e
 xpcall(function()
 	assert(load(code, "=init.lua"))()
 end, function(err)
-	oinvoke(component.list("ocelot")(), "log", debug.traceback(err))
+	--oinvoke(component.list("ocelot")(), "log", debug.traceback(err))
 	e = err
 end)
-while true do computer.pullSignal() end
+--while true do computer.pullSignal() end
 if e then error(e) end
