@@ -181,9 +181,6 @@ function proxy.list(path)
 	end
 	local results = {}
 	for k, v in pairs(files) do
-		if k:sub(1, #path) == path then
-			--oinvoke(component.list("ocelot")(), "log", string.format("path part: (%s)%s %d %q", path, k:sub(#path+1), k:find("/", #path+1) or -42069, (k:sub(1, #path) == path) and (not k:find("/", #path+1))))
-		end
 		if (k:sub(1, #path) == path) and (not k:find("/", #path+1)) then
 			local fname = k:sub(#path+1)
 			if v.dir then
@@ -282,12 +279,22 @@ end
 
 proxy.address = addr
 
+local fs = "filesystem"
+
 function component.list(comp, exact)
-	if comp == "filesystem" then
-		local rtv = olist(comp)
-		rtv[addr] = "filesystem"
-		local call = pairs(rtv)
-		return setmetatable(rtv, {__call=call})
+	if (not comp or (fs:sub(1, #comp) == comp and not exact)) or (comp == fs and exact) then
+		local rtv = {
+			[addr] = "filesystem"
+		}
+		for k, v in olist(comp) do
+			table.insert(rtv, {k, v})
+			rtv[k] = v
+		end
+		table.insert(rtv, {addr, "filesystem"})
+		table.insert(rtv, {})
+		return setmetatable(rtv, {__call=function()
+			return table.unpack(table.remove(rtv, 1))
+		end})
 	end
 	return olist(comp, exact)
 end
@@ -301,8 +308,6 @@ local e
 xpcall(function()
 	assert(load(code, "=init.lua"))()
 end, function(err)
-	--oinvoke(component.list("ocelot")(), "log", debug.traceback(err))
 	e = err
 end)
---while true do computer.pullSignal() end
 if e then error(e) end
