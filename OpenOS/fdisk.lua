@@ -1,6 +1,6 @@
 local shell = require("shell")
 local component = require("component")
-local osdi_hdr, mtpt_hdr = "<IIc8I3c13", ">c20c4II"
+local osdi_hdr, mtpt_hdr, flot_header = "<IIc8I3c13", ">c20c4II", "<BBc1Bc12"
 local args, opts = shell.parse(...)
 
 local function last_sector(tape)
@@ -55,6 +55,36 @@ local devs = {
 			local blksize = prox.getSectorSize()
 			return size//blksize
 		end
+	},
+	["drive_flash"] = {
+		read = "readSector",
+		write = "writeSector",
+		size = "getSectorSize",
+		last = function(prox)
+			local size = prox.getCapacity()
+			local blksize = prox.getSectorSize()
+			return size//blksize
+		end
+	},
+	["file"] = {
+		read = function(prox, sec)
+			prox:reopen("rb")
+			prox:seek("set", (sec-1)*prox.blocksize)
+			local rtv = prox:read(prox.blocksize)
+			return rtv--prox:read(prox.blocksize)
+		end,
+		write = function(prox, sec, dat)
+			prox:reopen("ab")
+			prox:seek("set", (sec-1)*prox.blocksize)
+			prox:write(dat)
+		end,
+		size = function(prox)
+			return prox.blocksize
+		end,
+		last = function(prox)
+			local pos = prox:seek("end", 0)
+			return pos//prox.blocksize
+		end
 	}
 }
 
@@ -82,7 +112,8 @@ local menu = {
 	[true] = {
 		a = "mark a partition as active",
 		o = "create a new empty OSDI partition table",
-		M = "create a new empty MTPT (minitel) partition table"
+		M = "create a new empty MTPT (minitel) partition table",
+		K = "create a new empty FLOT (flash layout table) partition table"
 	}
 	--[[["Create a new label"] = {
 		o = "create a new empty OSDI partition table",
@@ -116,6 +147,83 @@ local known_partitions = {
 	}
 }
 
+local function die(msg)
+	io.stderr:write(msg,"\n")
+	os.exit(1)
+end
+
+if require("filesystem").exists("/etc/fdisk/part_types") then
+	local ln = 1
+	local function fdie(err)
+		die(string.format("/etc/fdisk/part_types(%d): %s", ln, err))
+	end
+	local h = io.open("/etc/fdisk/part_types", "r")
+	local columns, match
+	for line in h:lines() do
+		-- Trim string
+		line = line:gsub("^%s+", ""):gsub("%s+$", "")
+		if line:sub(1,1) == ";" or #line == 0 then
+			goto continue
+		elseif line:sub(1,1) == "@" then
+			local rline = line:sub(2)
+			columns = {}
+			for m in rline:gmatch("%S+") do
+				table.insert(columns, m)
+			end
+			if columns[#columns] ~= "name" then
+				fdie("name column must be last column")
+			end
+			local _match = {}
+			for i=1, #columns do
+				if columns[i] ~= "name" then
+					_match[i] = "([%*#%-]%S*)"
+				else
+					_match[i] = "(.+)"
+				end
+			end
+			match = table.concat(_match, "%s+")
+			for i=1, #columns-1 do
+				known_partitions[columns[i]] = {}
+			end
+		else
+			if not columns then
+				fdie("no columns!")
+			end
+			local vals = table.pack(line:match(match))
+			if #vals == 0 then
+				fdie("malformed line")
+			end
+			--print("===")
+			for i=1, #columns-1 do
+				--print(">"..vals[i].."<")
+				if vals[i] == "-" then
+					goto next
+				elseif vals[i]:sub(1,1) == "*" then
+					table.insert(known_partitions[columns[i]], {[vals[i]:sub(2)] = vals[#vals]})
+				elseif vals[i]:sub(1,1) == "#" then
+					local r = vals[i]:sub(2)
+					local _newpt = ""
+					if #r % 2 > 0 then
+						fdie("invalid type in column "..columns[i])
+						return
+					end
+					for i=1, #r, 2 do
+						local hex = tonumber(r:sub(i, i+1), 16)
+						if not hex then fdie("malformed hex pair in column "..columns[i]) return end
+						_newpt = string.char(hex)
+					end
+					table.insert(known_partitions[columns[i]], {[_newpt] = vals[#vals]})
+				else
+					fdie("malformed value in column "..columns[i])
+				end
+				::next::
+			end
+		end
+		::continue::
+		ln = ln + 1
+	end
+end
+
 local function get_type(pt, idx)
 	if type(idx) == "number" then
 		return next(known_partitions[pt][idx])
@@ -129,19 +237,45 @@ local function get_type(pt, idx)
 	end
 end
 
-local function die(msg)
-	io.stderr:write(msg,"\n")
-	os.exit(1)
-end
-
 local function resolve(dev)
-	return component.get(dev, "drive") or component.get(dev, "tape_drive") or component.get("ossm_eeprom") or die(string.format("can't resolve %s into a component", dev))
+	return component.get(dev, "drive_flash") or component.get(dev, "drive") or component.get(dev, "tape_drive") or component.get("ossm_eeprom") or die(string.format("can't resolve %s into a component", dev))
 end
 
 local function dev_wrap(dev)
-	local complete = resolve(dev)
-	local ct = component.type(complete)
-	local prox = component.proxy(complete)
+	local complete, ct, prox
+	if dev:sub(1,1) == ":" then
+		local bs, skip = 512, 2
+		if dev:sub(2, 2) == "(" then
+			local _bs = dev:match("^:%(%d+%)")
+			skip = #_bs+1
+			bs = tonumber(_bs:sub(3, #_bs-1), 10)
+		end
+		local path = dev:sub(skip)
+		prox = {
+			blocksize = bs
+		}
+		function prox:read(...)
+			return self.h:read(...)
+		end
+		function prox:write(...)
+			return self.h:write(...)
+		end
+		function prox:reopen(mode)
+			if self.h then
+				self.h:close()
+			end
+			self.h = io.open(path, mode)
+		end
+		function prox:seek(...)
+			return self.h:seek(...)
+		end
+		ct = "file"
+		complete = path
+	else
+		complete = resolve(dev)
+		ct = component.type(complete)
+		prox = component.proxy(complete)
+	end
 	local function mfunc(func)
 		return function(...)
 			if type(devs[ct][func]) == "function" then
@@ -163,10 +297,12 @@ end
 
 local function osdi_read(dev)
 	local sec = dev.read(1)
+	--print(#sec)
 	local nc = 1
 	local tbl = {type="osdi"}
 	while nc < #sec do
 		local ent = {}
+		--print(nc, #sec)
 		ent.start, ent.size, ent.type, ent.flags, ent.name, nc = osdi_hdr:unpack(sec, nc)
 		table.insert(tbl, ent)
 	end
@@ -185,8 +321,49 @@ local function mtpt_read(dev)
 	return tbl
 end
 
+local function flot_read(dev)
+	local part = dev.read(1)
+	local off, tbl = 1, {
+		type = "flot",
+	}
+	while off < #part do
+		local ent = {}
+		ent.start, ent.size, ent.type, ent.flags, ent.name, off = flot_header:unpack(part, off)
+		if #ent ~= 0 then
+			ent.start = ent.start+1
+		end
+		table.insert(tbl, ent)
+	end
+	return tbl
+end
+
+local part_types = {
+	osdi = {
+		drive = true,
+		ossm_eeprom = true,
+		file = true
+	},
+	mtpt = {
+		drive = true,
+		ossm_eeprom = true,
+		tape_drive = true,
+		file = true
+	},
+	flot = {
+		drive_flash = true,
+		file = true
+	}
+}
+
 local function detect_table(dev)
-	if dev.type ~= "tape_drive" then
+	--if dev.type ~= "tape_drive" then
+	if part_types.flot[dev.type] then
+		if dev.read(1):sub(1, 4) == "\1\0\xF5\xE4" then
+			local tbl = flot_read(dev)
+			return tbl
+		end
+	end
+	if part_types.osdi[dev.type] then
 		local tbl = osdi_read(dev)
 		local sig = tbl[1]
 		if sig.start == 1 and sig.type == "OSDI\xAA\xAA\x55\x55" then
@@ -249,6 +426,7 @@ local ptypes = {
 			local tval = {}
 			for i=1, #tbl do
 				local te = tbl[i]
+				--print(te.start, te.size, te.type, te.flags, te.name)
 				local ent = osdi_hdr:pack(te.start, te.size, te.type, te.flags, te.name)
 				table.insert(tval, ent)
 			end
@@ -269,7 +447,7 @@ local ptypes = {
 			flag_set("s", "system critical partition"),
 			flag("z", "Zorya special"),
 			flag("m", "managed FS emulation"),
-			flag("r", "raw data"),
+			flag("R", "raw data"),
 			flag_set("A", "active"),
 			flag("o", "OEFI hint"),
 			flag("o", "OEFI hint"),
@@ -313,6 +491,47 @@ local ptypes = {
 		flags = false,
 		namesize = 20,
 		typesize = 4
+	},
+	flot = {
+		name = "FLOT (flash layout table)",
+		sig = {start = 1, size = 0, type = "\xF5", flags = 0xE4, name = ""},
+		read = flot_read,
+		pack = flot_header,
+		write = function()
+			local pt = {}
+			for i=1, #tbl do
+				local te = tbl[i]
+				local start = te.start
+				if i > 1 and start > 0 then
+					start = start - 1
+				end
+				--print(start)
+				local ent = flot_header:pack(start, te.size, te.type, te.flags, te.name)
+				table.insert(pt, ent)
+			end
+			odev.write(1, table.concat(pt))
+		end,
+		loc = 1,
+		start = 2,
+		_end = odev.last(),
+		free = function(ent)
+			return ent.flags & 1 == 0
+		end,
+		flags = "%.8s",
+		flags_short = "%.3s",
+		flag_list = {
+			short = 3,
+			flag("*", "allocated"),
+			flag_set("R", "read-only"),
+			flag_set("z", "compressed"),
+			no_flag,
+			no_flag,
+			no_flag,
+			no_flag,
+			no_flag
+		},
+		namesize = 12,
+		typesize = 1
 	}
 }
 
@@ -378,6 +597,8 @@ if not tbl then
 	print("Device does not contain a recognized partition table.")
 	if odev.type == "tape_drive" then
 		create_table("mtpt")
+	elseif odev.type == "drive_flash" then
+		create_table("flot")
 	else
 		create_table("osdi")
 	end
@@ -454,7 +675,8 @@ local function list_types()
 	local h = assert(io.popen("less -", "w"))
 	for i=1, #known_partitions[tbl.type] do
 		local k, v = next(known_partitions[tbl.type][i])
-		h:write(string.format("%.2x %"..#tbl[1].type.."s: %s\n", i, k, v))
+		--h:write(string.format("%.2x %"..#tbl[1].type.."s: %s\n", i, k, v))
+		h:write(string.format("%.2x: %s\n", i, v))
 	end
 	h:close()
 end
@@ -487,7 +709,9 @@ end
 local dev_names = {
 	drive = "Disk",
 	tape_drive = "Tape",
-	ossm_eeprom = "EEPROM"
+	ossm_eeprom = "EEPROM",
+	drive_flash = "Flash",
+	file = "File"
 }
 
 while true do
@@ -529,12 +753,7 @@ while true do
 		while true do
 			local fv, fl = serialize_flags(pt.flag_list, tbl[part+1].flags)
 			print(string.format("Flags: "..pt.flags.."\n", fv))
-			for i=1, #flag_list do
-				print(string.format("  %s   %s", flag_list[i].char, flag_list[i].name))
-			end
-			print("  ?   print all set flag meanings")
-			print("  q   exits this submenu")
-			local fls = prompt("Flag (q to exit)")
+			local fls = prompt("Flag (q to exit, / for help)")
 			if fls == "?" then
 				for i=1, #fl do
 					print(string.format("  %s   %s", fl[i].char, fl[i].name))
@@ -543,6 +762,13 @@ while true do
 				tbl[part+1].flags = tbl[part+1].flags ~ flag_list[fls]
 			elseif fls == "q" then
 				goto continue
+			elseif fls == "/" then
+				for i=1, #flag_list do
+					print(string.format("  %s   %s", flag_list[i].char, flag_list[i].name))
+				end
+				print("  ?   print all set flag meanings")
+				print("  /   print settable flags")
+				print("  q   exits this submenu")
 			else
 				eprint("Unknown command or flag.")
 			end
@@ -609,7 +835,7 @@ while true do
 		else
 			part = tonumber(part, 10)
 		end
-		tbl[part+1] = {size = 0, start = 0, type = "", name = "", flags = ""}
+		tbl[part+1] = {size = 0, start = 0, type = "", name = "", flags = 0}
 		print(string.format("Partition %d has been deleted.", part))
 	--[[
 		Change type
@@ -643,11 +869,11 @@ while true do
 				return true
 			elseif r:sub(1,1) == "#" then
 				_newpt = ""
-				if #r % 2 > 0 then
+				if (#r-1) % 2 > 0 then
 					eprint("invalid type")
 					return
 				end
-				for i=1, #r, 2 do
+				for i=2, #r, 2 do
 					local hex = tonumber(r:sub(i, i+1), 16)
 					if not hex then eprint("malformed hex pair") return end
 					_newpt = string.char(hex)
@@ -793,15 +1019,17 @@ while true do
 		end
 		local default_part, name = get_type(tbl.type, 1)
 		local size = end_sec-start_sec+1
-		tbl[part+1] = {start = start_sec, size = size, type = default_part, name = label:sub(1, pt.namesize), flags = 0}
+		tbl[part+1] = {start = start_sec, size = size, type = default_part, name = label:sub(1, pt.namesize), flags = tbl.type == "flot" and 1 or 0}
 		print(string.format("Created a new '%s' partition of %s", name, to_human(odev.size()*size)))
 	--[[
 		New partition tables
 	]]
-	elseif cmd == "o" and odev.type ~= "tape_drive" then
+	elseif cmd == "o" and part_types.osdi[odev.type] then
 		create_table("osdi")
-	elseif cmd == "M" then
+	elseif cmd == "M" and part_types.mtpt[odev.type]  then
 		create_table("mtpt")
+	elseif cmd == "K" and part_types.osdi[odev.type] then
+		create_table("flot")
 	--[[
 		Help
 	]]
@@ -826,10 +1054,16 @@ while true do
 			end
 		end
 		print("Create a new label")
-		if odev.type ~= "tape_drive" then
+		if part_types.osdi[odev.type] then
 			print(string.format("  %s   %s", "o", menu[true].o))
 		end
-		print(string.format("  %s   %s", "M", menu[true].M))
+		if part_types.flot[odev.type] then
+			print(string.format("  %s   %s", "K", menu[true].K))
+		end
+		if part_types.mtpt[odev.type] then
+			print(string.format("  %s   %s", "M", menu[true].M))
+		end
+		--print(string.format("  %s   %s", "M", menu[true].M))
 	--[[
 		Quit
 	]]
@@ -844,8 +1078,10 @@ while true do
 		if lbl == "" then
 			lbl = nil
 		end
-		component.invoke(odev.addr, "setLabel", lbl)
-		require("computer").pushSignal("reload_partitions", odev.addr)
+		if odev.type ~= "file" then
+			component.invoke(odev.addr, "setLabel", lbl)
+			require("computer").pushSignal("reload_partitions", odev.addr)
+		end
 		os.exit()
 	elseif cmd == "q" then
 		os.exit()
