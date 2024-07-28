@@ -1,18 +1,18 @@
-@osdi					mtpt					flot							name
-; Partition type (OSDI)	Partition type (MTPT)	Partition type (FLOT)			Partition name
+@osdi                   mtpt                    flot                            name
+; Partition type (OSDI) Partition type (MTPT)   Partition type (FLOT)           Partition name
 *BOOTCODE               *boot                   #01                             Bootloader code
--						*booz					-								Bootloader code (compressed)
-*bootpart				*blpt					-								Bootloader partition
--						-						#02								Bootloader configuration
-*tfs					*tfs					#03								Trivial File Store
-*rtfs					*rtfs					#04								RTFS
-*VelxBoot				*vxbp					-								VXBoot Boot Partition
-*openos					*oosr					-								OpenOS Root (/)
-*fencroot				*fcrt					-								Fennec Root (/)
-*fencusr				*fcus					-								Fennec /usr
-*fenchome				*fchm					-								Fennec /home
-*fencsrv				*fcsv					-								Fennec /srv
-*SIMPLEFS				-						-								SimpleFS
--						*tdda					-								Tape Digital Audio
-*mtpt					-						-								Minitel Partition Table
--						*osdi					-								OSDI Partition Table
+-                       *booz                   -                               Bootloader code (compressed)
+*bootpart               *blpt                   -                               Bootloader partition
+-                       -                       #02                             Bootloader configuration
+*tfs                    *tfs                    #03                             Trivial File Store
+*rtfs                   *rtfs                   #04                             RTFS
+*VelxBoot               *vxbp                   -                               VXBoot Boot Partition
+*openos                 *oosr                   -                               OpenOS Root (/)
+*fencroot               *fcrt                   -                               Fennec Root (/)
+*fencusr                *fcus                   -                               Fennec /usr
+*fenchome               *fchm                   -                               Fennec /home
+*fencsrv                *fcsv                   -                               Fennec /srv
+*SIMPLEFS               -                       -                               SimpleFS
+-                       *tdda                   -                               Tape Digital Audio
+*mtpt                   -                       -                               Minitel Partition Table
+-                       *osdi                   -                               OSDI Partition Table
