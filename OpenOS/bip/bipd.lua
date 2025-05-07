@@ -122,6 +122,7 @@ function start()
 	end
 	load_rules()
 	event.listen("modem_message", handle_agent)
+	event.push("dans_add_service", "modem", 9900, "boot/bip", "BIP server")
 end
 
 function stop()
@@ -129,6 +130,7 @@ function stop()
 		component.invoke(modem, "close", 9900)
 	end
 	event.ignore("modem_message", handle_agent)
+	event.push("dans_rm_service", "modem", 9900, "boot/bip", "BIP server")
 end
 
 local function find_machine(addr)
