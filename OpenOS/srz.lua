@@ -75,21 +75,21 @@ else
 end
 
 if opts.d then
-	local magic = ohand:read(4)
+	local magic = hand:read(4)
 	if magic ~= "srz\0" then
 		panic(hand == io.stdin and "stdin" or file, "not compressed with srz")
 	end
 	while true do
-		local hdr = ohand:read(srz.blk_hdr:packsize())
+		local hdr = hand:read(srz.blk_hdr:packsize())
 		if not hdr or #hdr < srz.blk_hdr:packsize() then break end
 		local _, dskz, treez = srz.blk_hdr:unpack(hdr)
-		local blkdat = ohand:read(dskz+treez+4)
+		local blkdat = hand:read(dskz+treez+4)
 		local dat = srz.decompress_block(hdr..blkdat)
-		hand:write(dat)
+		ohand:write(dat)
 		if not opts.q then io.stderr:write(".") end
 	end
+	ohand:flush()
 	ohand:close()
-	hand:flush()
 	hand:close()
 else
 	ohand:write("srz\0")
@@ -99,8 +99,8 @@ else
 		ohand:write(srz.compress_block(blk))
 		if not opts.q then io.stderr:write(".") end
 	end
+	ohand:flush()
 	ohand:close()
-	hand:flush()
 	hand:close()
 end
 
