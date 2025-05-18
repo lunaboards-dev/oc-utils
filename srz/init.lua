@@ -24,7 +24,7 @@ function srz.decompress_block(dat)
 	local zdat = dat:sub(offset+treez, #dat-5)
 	local tree = huff.loadtree(_tree)
 	local rdat = huff.decode(zdat, tree)
-	if #rdat ~= oriz then return nil, "size mismatch" end
+	if #rdat ~= oriz then return nil, string.format("size mismatch (header: %d ~= actual: %d)", oriz, #rdat) end
 	return rdat
 end
 

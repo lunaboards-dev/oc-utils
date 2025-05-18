@@ -24,7 +24,7 @@ local ratios = {
 local blks = {}
 
 local impl = {
-	"custom",
+	--"custom",
 	--"custom-std",
 	--"lzss",
 	"lzss-custom"
@@ -51,4 +51,4 @@ end
 
 --require("srz.huffman").encode(eblk)
 
-io.stdout:write(blks.custom)
+io.stdout:write(blks["lzss-custom"])

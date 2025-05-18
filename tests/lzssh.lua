@@ -33,9 +33,9 @@ local dhash = xxh.sum(dec)
 
 print(ihash, dhash)
 if ihash ~= dhash then
-	print(input)
+	--print(input)
 	print("====================================")
-	print(dec)
+	--print(dec)
 	print("FAIL")
 end
 print("=============================")
@@ -46,8 +46,8 @@ local uzblk = assert(srz.decompress_block(zblk))
 local uzhash = xxh.sum(uzblk)
 print(ihash, uzhash)
 if ihash ~= uzhash then
-	print(input)
+	--print(input)
 	print("====================================")
-	print(dec)
+	--print(dec)
 	print("FAIL")
 end
