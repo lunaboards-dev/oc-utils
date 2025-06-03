@@ -1,6 +1,6 @@
 --local lzss = require("srz.lzss")
 local xxh = require("srz.xxh32")
-local huff = require("srz.lzssh")--require("srz.huffman")
+local huff = require("srz.huffman")--require("srz.huffman")
 
 local srz = {}
 

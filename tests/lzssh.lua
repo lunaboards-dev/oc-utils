@@ -1,5 +1,5 @@
 local xxh = require("srz.xxh32")
-local lzssh = require("srz.lzssh")
+local lzssh = require("srz.huffman")
 local srz = require("srz")
 
 local input = io.stdin:read("*a")

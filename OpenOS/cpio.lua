@@ -22,7 +22,7 @@ local function panic(path, err)
 end
 
 local function usage()
-	eprint("Usage: cpio <-oith> [-dv --F=path] [paths...]")
+	eprint("Usage: cpio <-oith> [-dv --format=<bin|newc> --<F/file>=path] [paths...]")
 end
 
 local args, opts = shell.parse(...)
@@ -35,9 +35,9 @@ if not (opts.o or opts.i or opts.t) then
 	os.exit(1)
 end
 local file, err = opts.o and io.stdout or io.stdin
-if opts.F then
-	file, err = io.open(opts.F, opts.o and "wb" or "rb")
-	if not file then eprint(string.format("%s: %s", opts.F, err)) os.exit(1) end
+if opts.F or opts.file then
+	file, err = io.open(opts.F or opts.file, opts.o and "wb" or "rb")
+	if not file then eprint(string.format("%s: %s", opts.F or opts.file, err)) os.exit(1) end
 end
 
 local function matches_paths(path)
@@ -66,6 +66,10 @@ local function skip(amt)
 			amt = amt - #s
 		end
 	end
+end
+
+local function nextc(bytes)
+	return assert(file:read(bytes))
 end
 
 local function next_file()
@@ -103,18 +107,84 @@ local function next_file()
 	return ent
 end
 
+local function skamt(n, max)
+	local sk = n % max
+	if sk == 0 then return 0 end
+	return max - sk
+end
+
+local function readhex(n)
+	return tonumber(nextc(n), 16)
+end
+
+local function tohex(n, v)
+	return string.format("%."..v.."X", n)
+end
+
+local function next_file_newc()
+	local sig = nextc(6)
+	if sig ~= "070701" then error("unexpected EOF") end
+	local ent = {
+		ino = readhex(8),
+		mode = readhex(8),
+		uid = readhex(8),
+		gid = readhex(8),
+		nlink = readhex(8),
+		mtime = readhex(8),
+		fsize = readhex(8),
+		dmaj = readhex(8),
+		dmin = readhex(8),
+		rdmaj = readhex(8),
+		rdmin = readhex(8),
+		namesize = readhex(8),
+		csum = readhex(8),
+	}
+	ent.name = nextc(ent.namesize):sub(1, ent.namesize-1)
+	skip(skamt(ent.namesize, 4))
+	if ent.name == "TRAILER!!!" then return end
+	return ent
+end
+
+local x0 = "00000000"
+
+local real_next_file = (opts.foramt == "newc") and next_file_newc or next_file
+
 local pwd = shell.getWorkingDirectory()
 if opts.o then
 	local function write(data)
-		if #data & 1 > 0 then
-			data = data .. "\0"
+		if opts.format == "newc" then
+			data = data .. string.rep("\0", skamt(#data, 4))
+		else
+			if #data & 1 > 0 then
+				data = data .. "\0"
+			end
 		end
 		file:write(data)
 		bytes = bytes + #data
 	end
 	local inode = 0
 	local function write_stat(mode, size, mtime, nlink, name)
-		write(string.pack(hdr, magic, 0, inode, mode, 0, 0, nlink, 0, (mtime >> 16) & 0xFFFF, mtime & 0xFFFF, #name+1, size >> 16, size & 0xFFFF)..name.."\0")
+		if opts.format == "newc" then
+			write(
+				"070701".. -- magic
+				tohex(inode).. -- inode
+				tohex(mode).. -- mode
+				x0.. -- uid
+				x0.. -- gid
+				tohex(nlink).. -- nlinks
+				tohex(mtime).. -- mtime
+				tohex(size).. -- fsize
+				x0.. -- dev major
+				x0.. -- dev minor
+				x0.. -- rdev major
+				x0.. -- rdev minor
+				tohex(#name+1).. -- name size
+				x0.. -- checksum
+				name.."\0" -- name + null terminator
+			)
+		else
+			write(string.pack(hdr, magic, 0, inode, mode, 0, 0, nlink, 0, (mtime >> 16) & 0xFFFF, mtime & 0xFFFF, #name+1, size >> 16, size & 0xFFFF)..name.."\0")
+		end
 		inode = inode + 1
 	end
 	for line in io.stdin:lines() do
@@ -148,7 +218,7 @@ if opts.o then
 		file:close()
 	end
 elseif opts.t then
-	for ent in next_file do
+	for ent in real_next_file do
 		if opts.v then
 			local rwx = "xwr"
 			local mode = ""
@@ -160,10 +230,14 @@ elseif opts.t then
 		else
 			print(ent.name)
 		end
-		skip(ent.fsize + (ent.fsize & 1))
+		if opts.format == "newc" then
+			skip(skamt(ent.fsize, 4))
+		else
+			skip(ent.fsize + (ent.fsize & 1))
+		end
 	end
 elseif opts.i then
-	for ent in next_file do
+	for ent in real_next_file do
 		do
 			local dir = ent.mode >> 12 == 4
 			local path = fs.path(ent.name)
@@ -177,7 +251,11 @@ elseif opts.i then
 			end
 			local fd = io.open(ent.name, "wb")
 			if not fd then
-				skip(ent.fsize + (ent.fsize & 1))
+				if opts.format == "newc" then
+					skip(skamt(ent.fsize, 4))
+				else
+					skip(ent.fsize + (ent.fsize & 1))
+				end
 				goto continue
 			end
 			local amt = ent.fsize
@@ -193,8 +271,12 @@ elseif opts.i then
 				amt = amt - #last
 			end
 			fd:close()
-			if ent.fsize & 1 > 0 then
-				skip(1)
+			if opts.format == "newc" then
+				skip(skamt(ent.fsize, 4))
+			else
+				if ent.fsize & 1 > 0 then
+					skip(1)
+				end
 			end
 		end
 		::continue::
